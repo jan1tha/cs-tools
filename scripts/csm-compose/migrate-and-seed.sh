@@ -61,11 +61,33 @@ ensure_migrations_table() {
     "CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())"
 }
 
+# entity-service's migrations use two filename conventions at once, and both
+# have to be applied or the schema comes out incomplete:
+#
+#   - `NNNN_name.sql`      -- the historical set, renumbered and renamed when
+#                             the migrations were restructured to match
+#                             csm-sync-service's convention
+#   - `NNNNNN_name.up.sql` -- files added since, still on the older convention
+#
+# The whole historical set runs first, then the rest. They are NOT interleaved
+# by number: the two sets number from different origins, so the same number
+# means different migrations in each (0057_conversation_table.sql vs
+# 000057_create_response_template.up.sql), and sorting them together would
+# order dependencies wrongly. The historical set is the complete baseline;
+# everything on the older convention was added on top of it.
+migration_files() {
+  dir="$1"
+  ls "${dir}"/*.sql 2>/dev/null | grep -vE '\.(up|down)\.sql$' | sort
+  ls "${dir}"/*.up.sql 2>/dev/null | sort
+}
+
 apply_pending_migrations() {
   db="$1"; dir="$2"
   ensure_migrations_table "$db"
-  for f in $(ls "${dir}"/*.up.sql | sort); do
-    version="$(basename "$f" .up.sql)"
+  for f in $(migration_files "${dir}"); do
+    # Strips either convention's extension: `.sql`, then a leftover `.up`.
+    version="$(basename "$f" .sql)"
+    version="${version%.up}"
     already="$($PSQL -d "$db" -tAc "SELECT 1 FROM schema_migrations WHERE version = '${version}'")"
     if [ "$already" != "1" ]; then
       echo "[migrate]   applying $f"
