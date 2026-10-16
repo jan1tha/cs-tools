@@ -18,26 +18,30 @@ import {
   Alert,
   Box,
   Button,
+  Chip,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
-  FormControl,
-  InputLabel,
-  MenuItem,
-  Select,
+  List,
+  ListItemButton,
+  ListSubheader,
   Skeleton,
   TextField,
   Typography,
-  type SelectChangeEvent,
 } from "@wso2/oxygen-ui";
+import { Send } from "@wso2/oxygen-ui-icons-react";
 import { useMemo, useState, type JSX } from "react";
-import { escapeHtml, sanitizeRichTextHtml } from "@utils/sanitizeHtml";
+import { escapeHtml } from "@utils/sanitizeHtml";
 import { useGetCaseUpdateRequestTemplates } from "@features/csm-cases/api/useRequestCaseUpdate";
 import {
   REQUEST_UPDATE_STAGE_LABEL,
   type CaseUpdateRequestCategory,
 } from "@features/csm-cases/utils/caseUpdateRequests";
+import {
+  templateHtmlToPlainText,
+  type ResolvedCommentTemplate,
+} from "@features/csm-cases/utils/commentTemplates";
 import type { BeCaseUpdateRequestStage } from "@api/backend/types";
 
 /** Payload this dialog produces on confirm — mirrors `RequestCaseUpdateInput` minus `caseId`. */
@@ -47,138 +51,221 @@ export interface RequestUpdateSavePayload {
 }
 
 interface RequestUpdateDialogProps {
-  /** Which fixed reminder-message set to preview — see `deriveCaseUpdateRequestCategory`. */
+  /** Which fixed reminder-message set to offer — see `deriveCaseUpdateRequestCategory`. */
   category: CaseUpdateRequestCategory;
+  /**
+   * Response templates applicable to this case, offered alongside the three
+   * fixed reminders. This dialog is the only way to send a customer-visible
+   * message while the case is waiting on the customer — the comment composer
+   * refuses one in those states — so the template library has to be reachable
+   * from here.
+   */
+  templates?: ResolvedCommentTemplate[];
   /** True while the `POST /cases/{id}/request-update` call is in flight. */
   isSaving: boolean;
   onClose: () => void;
   onSave: (payload: RequestUpdateSavePayload) => void;
 }
 
-const STAGE_ORDER: BeCaseUpdateRequestStage[] = ["first", "second", "final", "custom"];
+/** The three server-rendered reminders; "custom" is not one of them. */
+type FixedStage = Exclude<BeCaseUpdateRequestStage, "custom">;
+
+const FIXED_STAGES: FixedStage[] = ["first", "second", "final"];
+
+/** One entry in the message list, whichever kind it came from. */
+interface MessageChoice {
+  key: string;
+  label: string;
+  group: string;
+  /** Fixed-reminder stage, when this choice is one. */
+  stage?: FixedStage;
+  /** Source markup, when the choice has any — sent verbatim if left unedited. */
+  sourceHtml?: string;
+}
 
 /**
- * "Request update" dialog: nudge the customer for a response using one of
- * three fixed reminder templates (previewed read-only, exactly as they'll be
- * posted) or a custom message. Adapted from ServiceNow's equivalent "Add
- * Comment Options" modal for this case's own dedicated backend endpoint —
- * see `POST /cases/{id}/request-update` / `GET /case-update-request-templates`.
+ * "Request update": nudge the customer for a response, or send them another
+ * canned message, while the case is waiting on them.
+ *
+ * Laid out like the templated-reply dialog — pick a message on the left, read
+ * and adjust it on the right, send from the same place — so the two read as
+ * one feature rather than two. The body is a plain description box rather than
+ * a rich-text editor on purpose: these are short prose nudges, and an editor's
+ * toolbar is more machinery than that needs.
+ *
+ * An untouched message posts its own markup verbatim — a fixed reminder goes
+ * as its `stage`, so the backend renders the server-side copy, and a template
+ * posts its authored HTML with its lists intact. Once edited, the engineer's
+ * text is escaped and wrapped in paragraphs, so a literal "<" they type can
+ * never reach the customer as markup.
  */
 export default function RequestUpdateDialog({
   category,
+  templates = [],
   isSaving,
   onClose,
   onSave,
 }: RequestUpdateDialogProps): JSX.Element {
-  const { data: templates, isLoading, isError } =
-    useGetCaseUpdateRequestTemplates();
-  const [stage, setStage] = useState<BeCaseUpdateRequestStage>("first");
-  const [customMessage, setCustomMessage] = useState("");
+  const {
+    data: fixedTemplates,
+    isLoading,
+    isError,
+  } = useGetCaseUpdateRequestTemplates();
 
-  const previewHtml = useMemo(() => {
-    if (stage === "custom" || !templates) return "";
-    return sanitizeRichTextHtml(templates[category][stage]);
-  }, [templates, category, stage]);
+  const choices = useMemo((): MessageChoice[] => {
+    const reminders: MessageChoice[] = FIXED_STAGES.map((stage) => ({
+      key: `stage:${stage}`,
+      label: REQUEST_UPDATE_STAGE_LABEL[stage],
+      group: "Reminders",
+      stage,
+      sourceHtml: fixedTemplates?.[category]?.[stage],
+    }));
+    const library: MessageChoice[] = templates.map((t) => ({
+      key: `template:${t.id}`,
+      label: t.label,
+      group: t.category || "Response templates",
+      sourceHtml: t.bodyHtml,
+    }));
+    return [
+      ...reminders,
+      ...library,
+      { key: "custom", label: "Custom message", group: "Other" },
+    ];
+  }, [fixedTemplates, category, templates]);
 
-  const trimmedCustomMessage = customMessage.trim();
-  // A custom message needs no template — it's still sendable even if the
-  // template fetch failed or is still loading; only the three fixed stages
-  // depend on the templates query having actually resolved.
-  const canSubmit =
-    stage === "custom"
-      ? trimmedCustomMessage.length > 0
-      : !isLoading && !isError && !!templates?.[category]?.[stage];
+  const [selectedKey, setSelectedKey] = useState<string>("stage:first");
+  const [message, setMessage] = useState("");
+  // True while the box still holds exactly what the chosen message seeded it
+  // with — which is what lets an unedited choice post its own markup.
+  const [pristine, setPristine] = useState(true);
+
+  const selected = choices.find((c) => c.key === selectedKey) ?? null;
+
+  // Seeding happens on selection rather than in an effect: from that point the
+  // box holds the engineer's own text, and a re-render must never overwrite
+  // what they have typed.
+  const select = (choice: MessageChoice): void => {
+    setSelectedKey(choice.key);
+    setMessage(choice.sourceHtml ? templateHtmlToPlainText(choice.sourceHtml) : "");
+    setPristine(true);
+  };
+
+  // The first render has no server templates yet, so the default selection's
+  // box fills in once they arrive -- but only while it is still untouched.
+  const seededSelection = selected?.sourceHtml
+    ? templateHtmlToPlainText(selected.sourceHtml)
+    : "";
+  if (pristine && message === "" && seededSelection !== "") {
+    setMessage(seededSelection);
+  }
+
+  const trimmed = message.trim();
+  const canSubmit = trimmed.length > 0 && !isSaving;
+  const groups = [...new Set(choices.map((c) => c.group))];
 
   const handleSave = (): void => {
-    if (!canSubmit) return;
-    if (stage === "custom") {
-      // The backend accepts any string as `customContent`, but every stored
-      // comment is rendered as HTML on read (see CsmCaseCommentBubble), so
-      // wrap the plain-text input in escaped paragraphs rather than sending
-      // it unescaped — a literal "<" in the engineer's message must not be
-      // interpreted as markup once it comes back through the feed.
-      const html = trimmedCustomMessage
-        .split(/\n+/)
-        .filter((line) => line.trim().length > 0)
-        .map((line) => `<p>${escapeHtml(line.trim())}</p>`)
-        .join("");
-      onSave({ stage, customContent: html });
+    if (!canSubmit || !selected) return;
+    if (pristine && selected.stage) {
+      onSave({ stage: selected.stage });
       return;
     }
-    onSave({ stage });
+    if (pristine && selected.sourceHtml) {
+      onSave({ stage: "custom", customContent: selected.sourceHtml });
+      return;
+    }
+    const html = trimmed
+      .split(/\n+/)
+      .filter((line) => line.trim().length > 0)
+      .map((line) => `<p>${escapeHtml(line.trim())}</p>`)
+      .join("");
+    onSave({ stage: "custom", customContent: html });
   };
 
   return (
-    <Dialog open onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog open onClose={onClose} maxWidth="md" fullWidth>
       <DialogTitle>Request update</DialogTitle>
-      <DialogContent>
-        <Box sx={{ display: "flex", flexDirection: "column", gap: 2, pt: 0.5 }}>
-          <Typography variant="body2" color="text.secondary">
-            Post a customer-visible comment nudging the customer for a
-            response. Pick one of the fixed reminder messages below, or write
-            your own.
-          </Typography>
+      <DialogContent dividers>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+          Post a customer-visible comment nudging the customer for a response.
+          Pick a message, adjust it if you need to, and send.
+        </Typography>
 
-          <FormControl fullWidth size="small">
-            <InputLabel id="request-update-stage-label">Message</InputLabel>
-            <Select
-              labelId="request-update-stage-label"
-              label="Message"
-              value={stage}
-              disabled={isSaving}
-              onChange={(e: SelectChangeEvent<string>) =>
-                setStage(e.target.value as BeCaseUpdateRequestStage)
-              }
-            >
-              {STAGE_ORDER.map((s) => (
-                <MenuItem key={s} value={s}>
-                  {s === "custom" ? "Custom message" : REQUEST_UPDATE_STAGE_LABEL[s]}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+        {isError && (
+          <Alert severity="error" sx={{ mb: 1.5 }}>
+            Couldn't load the reminder messages. You can still send your own
+            message, or close and try again.
+          </Alert>
+        )}
 
-          {isError && (
-            <Alert severity="error">
-              Couldn't load the reminder message templates. You can still send
-              a custom message, or close and try again.
-            </Alert>
-          )}
+        <Box
+          sx={{
+            display: "grid",
+            gridTemplateColumns: { xs: "1fr", sm: "minmax(0, 240px) 1fr" },
+            gap: 2,
+          }}
+        >
+          <List
+            dense
+            disablePadding
+            sx={{
+              border: 1,
+              borderColor: "divider",
+              borderRadius: 1,
+              maxHeight: 320,
+              overflowY: "auto",
+            }}
+          >
+            {groups.map((group) => (
+              <Box key={group} component="li" sx={{ listStyle: "none" }}>
+                <ListSubheader disableSticky sx={{ lineHeight: 2.2 }}>
+                  {group}
+                </ListSubheader>
+                {choices
+                  .filter((c) => c.group === group)
+                  .map((c) => (
+                    <ListItemButton
+                      key={c.key}
+                      selected={selectedKey === c.key}
+                      disabled={isSaving}
+                      onClick={() => select(c)}
+                      sx={{ py: 0.75 }}
+                    >
+                      <Typography variant="body2">{c.label}</Typography>
+                    </ListItemButton>
+                  ))}
+              </Box>
+            ))}
+          </List>
 
-          {stage === "custom" ? (
-            <TextField
-              label="Custom message"
-              placeholder="Write the message to post on this case…"
-              multiline
-              minRows={4}
-              fullWidth
-              size="small"
-              value={customMessage}
-              onChange={(e) => setCustomMessage(e.target.value)}
-              disabled={isSaving}
-            />
-          ) : isLoading ? (
-            <Skeleton variant="rounded" width="100%" height={100} />
-          ) : (
-            !isError && (
-              <Box
-                sx={{
-                  border: 1,
-                  borderColor: "divider",
-                  borderRadius: 1,
-                  p: 1.5,
-                  bgcolor: "action.hover",
-                  "& p": { m: 0 },
-                  "& p + p": { mt: 0.75 },
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Chip size="small" variant="outlined" label="Customer-visible" />
+              {!pristine && (
+                <Typography variant="caption" color="text.secondary">
+                  Edited
+                </Typography>
+              )}
+            </Box>
+
+            {isLoading && selected?.stage ? (
+              <Skeleton variant="rounded" width="100%" height={200} />
+            ) : (
+              <TextField
+                label="Message"
+                placeholder="Write the message to post on this case…"
+                multiline
+                minRows={8}
+                fullWidth
+                size="small"
+                value={message}
+                onChange={(e) => {
+                  setMessage(e.target.value);
+                  setPristine(false);
                 }}
-                data-testid="request-update-preview"
-                // Fixed templates are server-provided rich text, sanitized
-                // above — same safe-render approach the comment feed itself
-                // uses (`sanitizeRichTextHtml` + `dangerouslySetInnerHTML`).
-                dangerouslySetInnerHTML={{ __html: previewHtml }}
+                disabled={isSaving}
               />
-            )
-          )}
+            )}
+          </Box>
         </Box>
       </DialogContent>
       <DialogActions>
@@ -187,7 +274,8 @@ export default function RequestUpdateDialog({
         </Button>
         <Button
           variant="contained"
-          disabled={!canSubmit || isSaving}
+          startIcon={<Send size={16} />}
+          disabled={!canSubmit}
           loading={isSaving}
           onClick={handleSave}
         >

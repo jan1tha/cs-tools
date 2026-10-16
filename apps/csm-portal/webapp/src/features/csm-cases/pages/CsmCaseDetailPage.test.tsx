@@ -168,6 +168,12 @@ const WATCHER_ID = "00000000-0000-0000-0000-000000000001";
 const NEW_WATCHER_ID = "00000000-0000-0000-0000-000000000002";
 
 const useGetCsmCaseDetailMock = vi.fn();
+// Lead-maintained templates come from the backend; this page only folds them
+// in alongside its built-ins, so the hook is stubbed rather than the client.
+vi.mock("@features/csm-cases/api/useResponseTemplates", () => ({
+  useResponseTemplates: () => ({ data: [], isLoading: false, isError: false }),
+}));
+
 vi.mock("@features/csm-cases/api/useGetCsmCaseDetail", () => ({
   useGetCsmCaseDetail: (id: string | undefined) => useGetCsmCaseDetailMock(id),
 }));
@@ -210,11 +216,18 @@ vi.mock("@features/csm-cases/api/usePatchCsmCase", () => ({
 vi.mock("@features/csm-cases/api/useFindMyOngoingCases", () => ({
   useFindMyOngoingCases: () => vi.fn(),
 }));
+// Captured so a test can assert which endpoint a customer-visible send used:
+// the plain comment endpoint, or the update-request one that accepts a reply
+// on a case waiting on the customer without an assignee check.
+const postCommentMutateMock = vi.fn().mockResolvedValue({});
 const useGetCsmCaseCommentsMock = vi.fn();
 vi.mock("@features/csm-cases/api/useCsmCaseComments", () => ({
   useGetCsmCaseComments: (id: string | undefined) =>
     useGetCsmCaseCommentsMock(id),
-  usePostCsmCaseComment: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  usePostCsmCaseComment: () => ({
+    mutateAsync: postCommentMutateMock,
+    isPending: false,
+  }),
   usePatchComment: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useDeleteComment: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
@@ -352,6 +365,10 @@ vi.mock("@features/csm-cases/api/usePostCsmCaseEscalation", () => ({
 vi.mock("@features/csm-cases/api/useRequestCaseUpdate", () => ({
   useRequestCaseUpdate: () => ({
     mutate: requestCaseUpdateMutateMock,
+    // The composer awaits its send, so the page uses mutateAsync there while
+    // the action-bar dialog uses mutate with callbacks; both reach the same
+    // recorded mock.
+    mutateAsync: requestCaseUpdateMutateMock,
     isPending: false,
   }),
 }));
@@ -377,8 +394,29 @@ vi.mock("@features/csm-timecards/api/useTimeCards", () => ({
 }));
 
 // Simple presentational stubs — none of this test's assertions touch these.
+// Probe, not `null`: the customer-reply routing tests below need to see the
+// gate reason the page computed, and to send a public reply the same way a
+// user would. The composer's own rendering is covered in its own test file.
 vi.mock("@features/csm-cases/components/CsmCaseCommentInput", () => ({
-  default: () => null,
+  default: ({
+    publicCommentDisabledReason,
+    onSubmit,
+  }: {
+    publicCommentDisabledReason?: string | null;
+    onSubmit: (html: string, internal: boolean, attachments: never[]) => void;
+  }) => (
+    <>
+      <span data-testid="composer-gate">
+        {publicCommentDisabledReason ?? "unlocked"}
+      </span>
+      <button
+        type="button"
+        onClick={() => void onSubmit("<p>Any update on this?</p>", false, [])}
+      >
+        stub send public reply
+      </button>
+    </>
+  ),
 }));
 // Probe, not `null`: the change_case_type and request_update tests below
 // need a way to open their dialogs the same way a real user would (via the

@@ -757,6 +757,32 @@ type CaseEscalationService interface {
 	CreateCaseEscalation(ctx context.Context, caseID string, reason *string, action *domain.EscalationAction) (domain.CreatedEscalation, error)
 }
 
+// ResponseTemplateService owns the canned comment bodies leads maintain for
+// engineers to insert while composing a case comment. Postgres-only: there is
+// no ServiceNow equivalent, so a deployment without a database has no
+// templates rather than a second source of them.
+type ResponseTemplateService interface {
+	// ListResponseTemplates returns the templates matching req. The
+	// engineer-facing caller leaves IncludeInactive false, so a retired
+	// template stops being offered without disappearing from history.
+	ListResponseTemplates(ctx context.Context, req domain.ListResponseTemplatesRequest) (domain.ListResponseTemplatesResponse, error)
+	// GetResponseTemplate returns one template regardless of active state.
+	GetResponseTemplate(ctx context.Context, id string) (domain.ResponseTemplate, error)
+	// CreateResponseTemplate stores a new template at version 1, recording
+	// the caller as its author.
+	CreateResponseTemplate(ctx context.Context, req domain.CreateResponseTemplateRequest) (domain.ResponseTemplate, error)
+	// UpdateResponseTemplate applies the fields req sets, bumps the version
+	// and records the caller as the editor. Retiring a template is an update
+	// setting IsActive false -- there is no delete, since a template's past
+	// versions must stay readable.
+	UpdateResponseTemplate(ctx context.Context, req domain.UpdateResponseTemplateRequest) (domain.ResponseTemplate, error)
+	// ListResponseTemplateVersions returns the template's revision history,
+	// newest first.
+	ListResponseTemplateVersions(ctx context.Context, id string) ([]domain.ResponseTemplateVersion, error)
+}
+
+// CatalogService defines the operations available on service catalogs.
+// All methods require the ServiceNow data source; there is no Postgres fallback.
 // CatalogService defines the operations available on service catalogs. The
 // Postgres-backed implementation (catalogService) reads sr_category,
 // catalog_item, catalog_item_category, catalog_variable and

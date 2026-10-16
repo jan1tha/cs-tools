@@ -28,6 +28,12 @@ vi.mock("@api/backend/client", () => ({
   useBackendApi: () => ({ post: vi.fn() }),
 }));
 
+// Same import chain reaches the runtime-config module, which throws at load
+// when window.config isn't set — absent under vitest.
+vi.mock("@config/apiConfig", () => ({
+  apiConfig: { backendUrl: "https://example.test" },
+}));
+
 import CsmCaseCommentInput, {
   type CommentAttachmentDraft,
 } from "@features/csm-cases/components/CsmCaseCommentInput";

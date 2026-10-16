@@ -40,6 +40,7 @@ import {
   Layers,
   Link as LinkIcon,
   ListChecks,
+  FileText,
   MessageSquarePlus,
   Paperclip,
   PauseCircle,
@@ -110,6 +111,12 @@ import LinkIncidentDialog from "@features/csm-cases/components/LinkIncidentDialo
 import LinkCaseDialog, {
   type CaseLinkType,
 } from "@features/csm-cases/components/LinkCaseDialog";
+import {
+  mergeStoredTemplates,
+  resolveCommentTemplates,
+} from "@features/csm-cases/utils/commentTemplates";
+import { useResponseTemplates } from "@features/csm-cases/api/useResponseTemplates";
+import TemplatedReplyDialog from "@features/csm-cases/components/TemplatedReplyDialog";
 import SetFixEtaDialog, {
   type FixEtaSavePayload,
 } from "@features/csm-cases/components/SetFixEtaDialog";
@@ -184,6 +191,7 @@ import {
   effectiveWorkState,
   publicCommentGateReason,
   WORK_STATE_LABEL,
+  caseAcceptsCustomerUpdateRequest,
 } from "@features/csm-cases/utils/caseWorkState";
 import { useRecordRecentView } from "@features/csm-recent/hooks/useRecentViews";
 import { useIdTokenClaims } from "@hooks/useIdTokenClaims";
@@ -429,6 +437,14 @@ export default function CsmCaseDetailPage(): JSX.Element {
     isFetching: isFetchingCaseDetail,
     dataUpdatedAt: caseDetailUpdatedAt,
   } = useGetCsmCaseDetail(caseId);
+  // Lead-maintained comment templates for this case's state, folded in below
+  // alongside the built-in ones. Called here rather than at the point of use:
+  // that sits after this component's loading/error early returns, and a hook
+  // must run in the same order on every render. Keyed on the state the query
+  // already has, so it refetches when the case moves between states.
+  const { data: storedCommentTemplates } = useResponseTemplates({
+    state: data?.state ?? "",
+  });
   // Reports this case's number ONLY (not the wso2CaseId/subject the header
   // and recent-views entry show — a deliberately short tab chip label, by
   // request) up to the in-app case-tabs layer. Same field for all five
@@ -732,6 +748,7 @@ export default function CsmCaseDetailPage(): JSX.Element {
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [fixEtaOpen, setFixEtaOpen] = useState(false);
   const [requestUpdateOpen, setRequestUpdateOpen] = useState(false);
+  const [templatedReplyOpen, setTemplatedReplyOpen] = useState(false);
   const [addTagOpen, setAddTagOpen] = useState(false);
   // Which action the escalation confirm dialog is for, if open at all — null
   // hides the dialog. Set by whichever of Escalate/De-escalate was clicked.
@@ -832,6 +849,7 @@ export default function CsmCaseDetailPage(): JSX.Element {
     setCreateTaskOpen(false);
     setFixEtaOpen(false);
     setRequestUpdateOpen(false);
+    setTemplatedReplyOpen(false);
     setAddTagOpen(false);
     setEscalationDialogAction(null);
     setEscalationError(null);
@@ -1885,6 +1903,32 @@ export default function CsmCaseDetailPage(): JSX.Element {
     [patchCase, showError],
   );
 
+  /**
+   * Posts a templated message as an ordinary comment — a work note, or a
+   * customer-visible reply on a case this engineer has in progress. There is
+   * no update-request route here: a case waiting on the customer is served by
+   * "Request update" instead, and the dialog refuses a public template in
+   * those states rather than quietly posting through another endpoint.
+   */
+  const onSendTemplatedReply = useCallback(
+    async (bodyHtml: string, audience: "public" | "internal"): Promise<void> => {
+      if (!caseId) return;
+      await postComment.mutateAsync({
+        caseId,
+        bodyHtml,
+        authorName: engineerName,
+        internal: audience === "internal",
+      });
+      setFeedback({
+        message:
+          audience === "internal" ? "Work note added." : "Reply sent to the customer.",
+        severity: "success",
+        sticky: false,
+      });
+    },
+    [caseId, postComment, engineerName],
+  );
+
   const onRequestUpdate = useCallback(
     (payload: RequestUpdateSavePayload) => {
       if (!caseId) return;
@@ -2221,6 +2265,49 @@ export default function CsmCaseDetailPage(): JSX.Element {
   const canResumeToUnlockPublicReply = isAnnouncement
     ? false
     : computeCanResumeToUnlockPublicReply(c.state, c.workState, c.assigneeIsMe);
+  // Canned comment bodies offered for this case's current state and assignee.
+  // Whether a customer-facing template greets the reporter by name is the
+  // template layer's own rule — a case raised by a WSO2 engineer on the
+  // customer's behalf must not greet that engineer.
+  const templateContext = {
+    state: c.state,
+    caseType: c.caseType,
+    assigneeIsMe: c.assigneeIsMe,
+    // The composer's own gate is the single source of truth for whether a
+    // customer-visible reply is possible; templates follow it rather than
+    // re-deriving the rule.
+    canPostPublicComment: publicReplyGateReason === null,
+    assigneeName: c.assigneeName ?? c.assignee,
+    reporterName: c.createdBy,
+    reporterEmail: c.createdByEmail,
+  };
+  // Lead-maintained templates fold in on top of the built-in ones. The query
+  // failing leaves the built-ins in place rather than an error banner mid-reply
+  // (see useResponseTemplates' own doc comment).
+  // Resolved as if a customer-visible reply were possible, so the dialog can
+  // list a customer-facing template and explain why it can't be sent, rather
+  // than hiding it and leaving the engineer wondering where it went.
+  const templateListContext = { ...templateContext, canPostPublicComment: true };
+  const commentTemplates = mergeStoredTemplates(
+    resolveCommentTemplates(templateListContext),
+    storedCommentTemplates ?? [],
+    templateListContext,
+  );
+  // A templated customer-visible reply follows exactly the same rule as one
+  // typed into the composer: the case must be in progress under this
+  // engineer. While the case is waiting on the customer (awaiting info,
+  // solution proposed) or on WSO2, a public reply is deliberately NOT offered
+  // here -- "Request update" is that conversation's own action, and having two
+  // ways to post the same kind of message invites sending it from the wrong
+  // one.
+  const canPostPublicTemplate = publicReplyGateReason === null;
+  const publicBlockedReason = canPostPublicTemplate
+    ? null
+    : caseAcceptsCustomerUpdateRequest(c.state)
+      ? "This case is waiting on the customer — use More → Request update to send them a message."
+      : (publicReplyGateReason ??
+        "A customer-visible message can't be posted on this case right now.");
+
   // FE-only, advisory close-gate: warn when the case has an open task, so the
   // engineer isn't surprised by a close rejection. Best-effort — the task
   // *list* (`POST /cases/{id}/tasks/search`) returns `BeTaskSummary`, which
@@ -2634,14 +2721,18 @@ export default function CsmCaseDetailPage(): JSX.Element {
               />
             </Card>
           ) : (
-            // Full-width collapsed composer: a faux input bar that fills the
-            // row and reads as "click to write a reply" rather than a lone
-            // button floating in empty space.
+            // Collapsed composer row: the faux input bar reads as "click to
+            // write a reply" rather than a lone button floating in empty
+            // space, with the templated-reply action beside it as a real
+            // sibling. Templates deliberately sit here rather than inside the
+            // editor's own toolbar: choosing one opens its own compose-and-send
+            // dialog, so burying it in the editor would both hide it and
+            // suggest it merely inserts text into that editor.
+            <Box className="csm-print-hide" sx={{ display: "flex", gap: 1 }}>
             <Button
               fullWidth
               variant="outlined"
               color="inherit"
-              className="csm-print-hide"
               disabled={isClosed}
               startIcon={<MessageSquarePlus size={18} />}
               onClick={() => setComposerOpen(true)}
@@ -2667,6 +2758,23 @@ export default function CsmCaseDetailPage(): JSX.Element {
                   ? "Add an internal work note…"
                   : "Compose a reply to the customer…"}
             </Button>
+            {/* No Tooltip here on purpose: MUI copies a tooltip's text into
+                the child's aria-label when the child has none, which would
+                leave this button announcing something other than the
+                "Templates" a sighted user reads. The label is self-evident
+                and the dialog itself explains the rest. */}
+            {commentTemplates.length > 0 && (
+              <Button
+                variant="outlined"
+                disabled={isClosed}
+                startIcon={<FileText size={16} />}
+                onClick={() => setTemplatedReplyOpen(true)}
+                sx={{ textTransform: "none", flexShrink: 0, whiteSpace: "nowrap" }}
+              >
+                Templates
+              </Button>
+            )}
+            </Box>
           )}
 
           <Card sx={{ p: 2.5, display: "flex", flexDirection: "column", gap: 2 }}>
@@ -3208,9 +3316,21 @@ export default function CsmCaseDetailPage(): JSX.Element {
         />
       )}
 
+      {templatedReplyOpen && (
+        <TemplatedReplyDialog
+          templates={commentTemplates}
+          canPostPublic={canPostPublicTemplate}
+          publicBlockedReason={publicBlockedReason}
+          isSending={postComment.isPending || requestCaseUpdate.isPending}
+          onClose={() => setTemplatedReplyOpen(false)}
+          onSend={onSendTemplatedReply}
+        />
+      )}
+
       {requestUpdateOpen && (
         <RequestUpdateDialog
           category={deriveCaseUpdateRequestCategory(c)}
+          templates={commentTemplates.filter((t) => t.audience === "public")}
           isSaving={requestCaseUpdate.isPending}
           onClose={() => setRequestUpdateOpen(false)}
           onSave={onRequestUpdate}

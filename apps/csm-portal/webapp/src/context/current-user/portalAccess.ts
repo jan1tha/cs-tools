@@ -68,6 +68,16 @@ export interface PortalAccess {
    * timecard_approver/dashboard_designer do not hold.
    */
   canUseSecurityCenter: boolean;
+  /**
+   * Maintaining the shared response-template library in Settings (creating a
+   * template, editing one, retiring or restoring it). `admin` and
+   * `timecard_approver` — the team-lead role — only; `cs_engineer` can read
+   * the library and use its templates but not change what everyone else is
+   * offered. Mirrors the backend's `PermManageResponseTemplates`, which is
+   * the second permission (after `PermAdmin`) that `cs_engineer` does not
+   * share with `admin`.
+   */
+  canManageResponseTemplates: boolean;
 }
 
 /**
@@ -93,5 +103,9 @@ export function getPortalAccess(roles: string[] | undefined): PortalAccess {
     canWrite: full,
     canCreateUser: has(PORTAL_ROLE.admin),
     canUseSecurityCenter: full,
+    // Deliberately not `full`: cs_engineer is excluded, so this is spelled
+    // out from the two roles that do hold it rather than reusing `full`.
+    canManageResponseTemplates:
+      has(PORTAL_ROLE.admin) || has(PORTAL_ROLE.timecardApprover),
   };
 }

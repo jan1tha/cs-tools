@@ -25,6 +25,7 @@ const NONE = {
   canWrite: false,
   canCreateUser: false,
   canUseSecurityCenter: false,
+  canManageResponseTemplates: false,
 };
 
 describe("getPortalAccess", () => {
@@ -56,11 +57,12 @@ describe("getPortalAccess", () => {
     }
   });
 
-  it("the time-card approver also gets Time cards and Updates, and nothing else", () => {
+  it("the time-card approver -- the team-lead role -- also gets Time cards and Updates and the template library, and nothing else", () => {
     expect(getPortalAccess(["timecard_approver"])).toEqual({
       ...NONE,
       hasAnyRole: true,
       canUseTimeCardsAndUpdates: true,
+      canManageResponseTemplates: true,
     });
   });
 
@@ -74,8 +76,16 @@ describe("getPortalAccess", () => {
       canWrite: true,
       canUseSecurityCenter: true,
     };
-    expect(getPortalAccess(["cs_engineer"])).toEqual({ ...all, canCreateUser: false });
-    expect(getPortalAccess(["admin"])).toEqual({ ...all, canCreateUser: true });
+    expect(getPortalAccess(["cs_engineer"])).toEqual({
+      ...all,
+      canCreateUser: false,
+      canManageResponseTemplates: false,
+    });
+    expect(getPortalAccess(["admin"])).toEqual({
+      ...all,
+      canCreateUser: true,
+      canManageResponseTemplates: true,
+    });
   });
 
   it("only admin can create a user -- CS engineer does not share this one", () => {
@@ -90,6 +100,23 @@ describe("getPortalAccess", () => {
       "dashboard_designer",
     ]) {
       expect(getPortalAccess([role]).canCreateUser).toBe(false);
+    }
+  });
+
+  it("only admin and the team lead can maintain the response-template library", () => {
+    expect(getPortalAccess(["admin"]).canManageResponseTemplates).toBe(true);
+    expect(getPortalAccess(["timecard_approver"]).canManageResponseTemplates).toBe(true);
+    // cs_engineer is the notable exclusion: it can read and use templates,
+    // but not change what the whole team is offered.
+    for (const role of [
+      "cs_engineer",
+      "viewer",
+      "escalator",
+      "attachment_downloader",
+      "usage_metrics_viewer",
+      "dashboard_designer",
+    ]) {
+      expect(getPortalAccess([role]).canManageResponseTemplates).toBe(false);
     }
   });
 

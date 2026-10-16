@@ -14,7 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import RequestUpdateDialog from "@features/csm-cases/components/RequestUpdateDialog";
@@ -50,189 +50,162 @@ function mockTemplatesLoaded(
   } as ReturnType<typeof useGetCaseUpdateRequestTemplates>);
 }
 
-function selectStage(label: RegExp): void {
-  fireEvent.mouseDown(screen.getByRole("combobox", { name: /message/i }));
-  fireEvent.click(within(screen.getByRole("listbox")).getByText(label));
+/** Pick a message from the left-hand list by its visible label. */
+function selectMessage(label: RegExp | string): void {
+  fireEvent.click(screen.getByText(label));
+}
+
+const LIBRARY = [
+  {
+    id: "follow-up",
+    label: "Follow up on pending information",
+    category: "Follow-up",
+    description: "Remind the customer the case is waiting on their input.",
+    audience: "public" as const,
+    bodyHtml:
+      "<p>Hi Dana,</p><p>We are following up on the information requested.</p>",
+  },
+];
+
+function renderDialog(props: Partial<React.ComponentProps<typeof RequestUpdateDialog>> = {}) {
+  const onSave = vi.fn();
+  const onClose = vi.fn();
+  render(
+    <RequestUpdateDialog
+      category="generic"
+      isSaving={false}
+      onClose={onClose}
+      onSave={onSave}
+      {...props}
+    />,
+  );
+  return { onSave, onClose };
 }
 
 describe("RequestUpdateDialog", () => {
-  it("defaults to the first reminder and previews the generic template", () => {
+  it("offers the three reminders and a custom message, and seeds the box with the first", () => {
     mockTemplatesLoaded();
-    render(
-      <RequestUpdateDialog
-        category="generic"
-        isSaving={false}
-        onClose={() => {}}
-        onSave={() => {}}
-      />,
-    );
-    expect(screen.getByTestId("request-update-preview").innerHTML).toContain(
-      "Generic first reminder.",
+    renderDialog();
+    // Queried as controls, not text: the message box below holds the chosen
+    // reminder's wording, so a text match would find that too.
+    for (const label of ["First reminder", "Second reminder", "Final notice", "Custom message"]) {
+      expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
+    }
+    // The chosen message is editable text, not a read-only preview.
+    expect(screen.getByLabelText(/^message/i)).toHaveValue(
+      "Hi Team,\n\nGeneric first reminder.",
     );
   });
 
-  it("previews the migration template set when category is migration", () => {
+  it("uses the migration wording when the case is a migration engagement", () => {
     mockTemplatesLoaded();
-    render(
-      <RequestUpdateDialog
-        category="migration"
-        isSaving={false}
-        onClose={() => {}}
-        onSave={() => {}}
-      />,
-    );
-    expect(screen.getByTestId("request-update-preview").innerHTML).toContain(
-      "Migration first reminder.",
+    renderDialog({ category: "migration" });
+    expect(screen.getByLabelText(/^message/i)).toHaveValue(
+      "Hi Team,\n\nMigration first reminder.",
     );
   });
 
-  it("switches the preview when a different stage is selected", () => {
+  it("swaps the box contents when another message is picked", () => {
     mockTemplatesLoaded();
-    render(
-      <RequestUpdateDialog
-        category="generic"
-        isSaving={false}
-        onClose={() => {}}
-        onSave={() => {}}
-      />,
-    );
-    selectStage(/second reminder/i);
-    expect(screen.getByTestId("request-update-preview").innerHTML).toContain(
-      "Generic second reminder.",
+    renderDialog();
+    selectMessage(/final notice/i);
+    expect(screen.getByLabelText(/^message/i)).toHaveValue(
+      "Hi Team,\n\nGeneric final notice.",
     );
   });
 
-  it("calls onSave with just the stage for a fixed reminder", () => {
+  it("sends an untouched reminder as its stage, so the backend renders its own copy", () => {
     mockTemplatesLoaded();
-    const onSave = vi.fn();
-    render(
-      <RequestUpdateDialog
-        category="generic"
-        isSaving={false}
-        onClose={() => {}}
-        onSave={onSave}
-      />,
-    );
+    const { onSave } = renderDialog();
+    selectMessage(/second reminder/i);
     fireEvent.click(screen.getByRole("button", { name: /^send$/i }));
-    expect(onSave).toHaveBeenCalledWith({ stage: "first" });
+    expect(onSave).toHaveBeenCalledWith({ stage: "second" });
   });
 
-  it("shows a text field instead of a preview for a custom message, and blocks Send until non-empty", () => {
+  it("escapes and wraps the engineer's own wording once they edit it", () => {
     mockTemplatesLoaded();
-    render(
-      <RequestUpdateDialog
-        category="generic"
-        isSaving={false}
-        onClose={() => {}}
-        onSave={() => {}}
-      />,
-    );
-    selectStage(/custom message/i);
-    expect(screen.queryByTestId("request-update-preview")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^send$/i })).toBeDisabled();
-
-    fireEvent.change(screen.getByLabelText(/custom message/i), {
-      target: { value: "Any update on your side?" },
-    });
-    expect(screen.getByRole("button", { name: /^send$/i })).toBeEnabled();
-  });
-
-  it("wraps the custom message in an escaped paragraph before saving", () => {
-    mockTemplatesLoaded();
-    const onSave = vi.fn();
-    render(
-      <RequestUpdateDialog
-        category="generic"
-        isSaving={false}
-        onClose={() => {}}
-        onSave={onSave}
-      />,
-    );
-    selectStage(/custom message/i);
-    fireEvent.change(screen.getByLabelText(/custom message/i), {
-      target: { value: "Any update <on> your side?" },
+    const { onSave } = renderDialog();
+    fireEvent.change(screen.getByLabelText(/^message/i), {
+      target: { value: "Any update on <this>?" },
     });
     fireEvent.click(screen.getByRole("button", { name: /^send$/i }));
     expect(onSave).toHaveBeenCalledWith({
       stage: "custom",
-      customContent: "<p>Any update &lt;on&gt; your side?</p>",
+      customContent: "<p>Any update on &lt;this&gt;?</p>",
     });
   });
 
-  it("disables Send while templates are loading", () => {
-    mockedUseGetTemplates.mockReturnValue({
-      data: undefined,
-      isLoading: true,
-      isError: false,
-    } as ReturnType<typeof useGetCaseUpdateRequestTemplates>);
-    render(
-      <RequestUpdateDialog
-        category="generic"
-        isSaving={false}
-        onClose={() => {}}
-        onSave={() => {}}
-      />,
-    );
+  it("starts a custom message empty and blocks Send until something is written", () => {
+    mockTemplatesLoaded();
+    const { onSave } = renderDialog();
+    selectMessage(/custom message/i);
+    expect(screen.getByLabelText(/^message/i)).toHaveValue("");
     expect(screen.getByRole("button", { name: /^send$/i })).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText(/^message/i), {
+      target: { value: "Could you confirm whether this is still reproducible?" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^send$/i }));
+    expect(onSave).toHaveBeenCalledWith({
+      stage: "custom",
+      customContent: "<p>Could you confirm whether this is still reproducible?</p>",
+    });
   });
 
-  it("shows an error state when templates fail to load, but still allows a custom message", () => {
+  it("lists response templates alongside the reminders and posts one verbatim", () => {
+    mockTemplatesLoaded();
+    const { onSave } = renderDialog({ templates: LIBRARY });
+    selectMessage("Follow up on pending information");
+    // Shown as editable text...
+    expect(screen.getByLabelText(/^message/i)).toHaveValue(
+      "Hi Dana,\n\nWe are following up on the information requested.",
+    );
+    // ...but sent as its own markup while untouched, so its formatting survives.
+    fireEvent.click(screen.getByRole("button", { name: /^send$/i }));
+    expect(onSave).toHaveBeenCalledWith({
+      stage: "custom",
+      customContent: LIBRARY[0].bodyHtml,
+    });
+  });
+
+  it("shows only the reminders when no templates apply", () => {
+    mockTemplatesLoaded();
+    renderDialog({ templates: [] });
+    expect(
+      screen.queryByText("Follow up on pending information"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("still allows a message of the engineer's own when the reminders fail to load", () => {
     mockedUseGetTemplates.mockReturnValue({
       data: undefined,
       isLoading: false,
       isError: true,
     } as ReturnType<typeof useGetCaseUpdateRequestTemplates>);
-    const onSave = vi.fn();
-    render(
-      <RequestUpdateDialog
-        category="generic"
-        isSaving={false}
-        onClose={() => {}}
-        onSave={onSave}
-      />,
-    );
-    expect(screen.getByText(/couldn't load the reminder message templates/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^send$/i })).toBeDisabled();
-
-    selectStage(/custom message/i);
-    fireEvent.change(screen.getByLabelText(/custom message/i), {
-      target: { value: "Checking in." },
+    const { onSave } = renderDialog();
+    expect(screen.getByText(/couldn't load the reminder messages/i)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/^message/i), {
+      target: { value: "Checking in on this case." },
     });
     fireEvent.click(screen.getByRole("button", { name: /^send$/i }));
     expect(onSave).toHaveBeenCalledWith({
       stage: "custom",
-      customContent: "<p>Checking in.</p>",
+      customContent: "<p>Checking in on this case.</p>",
     });
   });
 
-  it("shows a loading state and disables actions while isSaving", () => {
+  it("disables the actions while a send is in flight", () => {
     mockTemplatesLoaded();
-    render(
-      <RequestUpdateDialog
-        category="generic"
-        isSaving
-        onClose={() => {}}
-        onSave={() => {}}
-      />,
-    );
+    renderDialog({ isSaving: true });
     expect(screen.getByRole("button", { name: /^send$/i })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /^close$/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /close/i })).toBeDisabled();
   });
 
-  it("calls onClose on Close without calling onSave", () => {
+  it("calls onClose on Close without sending anything", () => {
     mockTemplatesLoaded();
-    const onSave = vi.fn();
-    const onClose = vi.fn();
-    render(
-      <RequestUpdateDialog
-        category="generic"
-        isSaving={false}
-        onClose={onClose}
-        onSave={onSave}
-      />,
-    );
-    fireEvent.click(screen.getByRole("button", { name: /^close$/i }));
-    expect(onClose).toHaveBeenCalled();
+    const { onSave, onClose } = renderDialog();
+    fireEvent.click(screen.getByRole("button", { name: /close/i }));
+    expect(onClose).toHaveBeenCalledTimes(1);
     expect(onSave).not.toHaveBeenCalled();
   });
 });

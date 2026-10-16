@@ -9900,6 +9900,201 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /response-templates/search:
+    post:
+      summary: >-
+        List the canned comment bodies a lead maintains for engineers to insert
+        while composing a case comment. Retired templates are excluded unless
+        includeInactive is set, which only the management view does. A caseType
+        or state filter also matches a template that declares no restriction on
+        that axis. Has no ServiceNow equivalent — always backed by Postgres.
+      operationId: searchResponseTemplates
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ListResponseTemplatesRequest'
+      responses:
+        "200":
+          description: Matching templates.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListResponseTemplatesResponse'
+        "400":
+          description: Bad request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "500":
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /response-templates:
+    post:
+      summary: >-
+        Create a response template at version 1. The caller's own identity is
+        recorded as its author; the request body carries no author field.
+      operationId: createResponseTemplate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateResponseTemplateRequest'
+      responses:
+        "201":
+          description: Template created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseTemplateResponse'
+        "400":
+          description: Bad request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "404":
+          description: Not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "500":
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /response-templates/{id}:
+    get:
+      summary: Read one response template, active or retired.
+      operationId: getResponseTemplate
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The template.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseTemplate'
+        "400":
+          description: Bad request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "404":
+          description: Template not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "500":
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    patch:
+      summary: >-
+        Edit a response template. Every field is optional; an omitted field
+        keeps its current value. The version is bumped and the resulting
+        revision appended to the template's history, recording the caller as
+        the editor. Retiring a template is an update setting isActive false —
+        there is no delete, since past versions must stay readable.
+      operationId: updateResponseTemplate
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateResponseTemplateRequest'
+      responses:
+        "200":
+          description: Template updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseTemplateResponse'
+        "400":
+          description: Bad request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "404":
+          description: Template not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "500":
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /response-templates/{id}/versions:
+    get:
+      summary: >-
+        The template's full revision history, newest first — one entry per
+        version ever published, with the editor and timestamp of each.
+      operationId: listResponseTemplateVersions
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The template's revision history.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseTemplateVersionsResponse'
+        "400":
+          description: Bad request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "404":
+          description: Template not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "500":
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
 components:
   securitySchemes:
     internalClientCredential:
@@ -22811,3 +23006,112 @@ components:
         failure:
           type: string
           description: Why it could not be landed. Required and must not be empty.
+
+    ResponseTemplate:
+      type: object
+      required: [id, name, category, content, audience, applicableCaseTypes, applicableStates, isActive, version, createdOn, createdBy, updatedOn, updatedBy]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        category: { type: string }
+        description: { type: string }
+        content:
+          type: string
+          description: Rich-text HTML inserted into the comment editor.
+        audience: { type: string, enum: [public, internal] }
+        applicableCaseTypes:
+          type: array
+          description: Empty means the template applies to every case type.
+          items: { type: string }
+        applicableStates:
+          type: array
+          description: Empty means the template applies in every case state.
+          items: { type: string }
+        isActive: { type: boolean }
+        version: { type: integer }
+        createdOn: { type: string, format: date-time }
+        createdBy: { type: string }
+        updatedOn: { type: string, format: date-time }
+        updatedBy: { type: string }
+
+    ResponseTemplateVersion:
+      type: object
+      required: [version, name, category, content, audience, isActive, changedBy, changedOn]
+      properties:
+        version: { type: integer }
+        name: { type: string }
+        category: { type: string }
+        description: { type: string }
+        content: { type: string }
+        audience: { type: string, enum: [public, internal] }
+        isActive: { type: boolean }
+        changedBy: { type: string }
+        changedOn: { type: string, format: date-time }
+
+    ListResponseTemplatesRequest:
+      type: object
+      properties:
+        includeInactive:
+          type: boolean
+          description: Management view only; the engineer-facing list omits it.
+        category: { type: string }
+        caseType: { type: string }
+        state: { type: string }
+
+    ListResponseTemplatesResponse:
+      type: object
+      required: [templates, total]
+      properties:
+        templates:
+          type: array
+          items: { $ref: '#/components/schemas/ResponseTemplate' }
+        total: { type: integer }
+
+    CreateResponseTemplateRequest:
+      type: object
+      required: [name, category, content]
+      properties:
+        name: { type: string }
+        category: { type: string }
+        description: { type: string }
+        content: { type: string }
+        audience: { type: string, enum: [public, internal], default: public }
+        applicableCaseTypes:
+          type: array
+          items: { type: string }
+        applicableStates:
+          type: array
+          items: { type: string }
+
+    UpdateResponseTemplateRequest:
+      type: object
+      description: Every field optional; an omitted field keeps its current value.
+      properties:
+        name: { type: string }
+        category: { type: string }
+        description: { type: string }
+        content: { type: string }
+        audience: { type: string, enum: [public, internal] }
+        applicableCaseTypes:
+          type: array
+          items: { type: string }
+        applicableStates:
+          type: array
+          items: { type: string }
+        isActive: { type: boolean }
+
+    ResponseTemplateResponse:
+      type: object
+      required: [message, template]
+      properties:
+        message: { type: string }
+        template: { $ref: '#/components/schemas/ResponseTemplate' }
+
+    ResponseTemplateVersionsResponse:
+      type: object
+      required: [versions, total]
+      properties:
+        versions:
+          type: array
+          items: { $ref: '#/components/schemas/ResponseTemplateVersion' }
+        total: { type: integer }

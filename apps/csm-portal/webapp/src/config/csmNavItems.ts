@@ -25,6 +25,7 @@ import {
   Clock,
   ClipboardList,
   Cog,
+  FileText,
   FileWarning,
   GitPullRequest,
   Headset,
@@ -302,6 +303,12 @@ export const CSM_NAV_ITEMS: CsmNavSection[] = [
       // action at all (everything it does is local to the browser), so
       // there is nothing for a backend gate to enforce here — the ONLY
       // gate is this frontend one.
+      {
+        id: "admin.response-templates",
+        label: "Response templates",
+        href: "/admin/response-templates",
+        icon: FileText,
+      },
       {
         id: "admin.dashboards",
         label: "Dashboards",

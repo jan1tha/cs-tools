@@ -84,6 +84,34 @@ func (c *CustomerEntityClient) SearchCaseComments(ctx context.Context, caseID st
 	return c.do(ctx, http.MethodPost, fmt.Sprintf("/cases/%s/comments/search", url.PathEscape(caseID)), body)
 }
 
+// SearchResponseTemplates calls POST /response-templates/search on the entity
+// service.
+func (c *CustomerEntityClient) SearchResponseTemplates(ctx context.Context, body []byte) ([]byte, error) {
+	return c.do(ctx, http.MethodPost, "/response-templates/search", body)
+}
+
+// CreateResponseTemplate calls POST /response-templates on the entity service.
+func (c *CustomerEntityClient) CreateResponseTemplate(ctx context.Context, body []byte) ([]byte, error) {
+	return c.do(ctx, http.MethodPost, "/response-templates", body)
+}
+
+// UpdateResponseTemplate calls PATCH /response-templates/{id} on the entity
+// service.
+func (c *CustomerEntityClient) UpdateResponseTemplate(ctx context.Context, id string, body []byte) ([]byte, error) {
+	return c.do(ctx, http.MethodPatch, fmt.Sprintf("/response-templates/%s", url.PathEscape(id)), body)
+}
+
+// GetResponseTemplate calls GET /response-templates/{id} on the entity service.
+func (c *CustomerEntityClient) GetResponseTemplate(ctx context.Context, id string) ([]byte, error) {
+	return c.do(ctx, http.MethodGet, fmt.Sprintf("/response-templates/%s", url.PathEscape(id)), nil)
+}
+
+// ListResponseTemplateVersions calls GET /response-templates/{id}/versions on
+// the entity service.
+func (c *CustomerEntityClient) ListResponseTemplateVersions(ctx context.Context, id string) ([]byte, error) {
+	return c.do(ctx, http.MethodGet, fmt.Sprintf("/response-templates/%s/versions", url.PathEscape(id)), nil)
+}
+
 // SearchCaseEscalations calls GET /cases/{id}/escalations on the entity service to fetch
 // a case's escalation history. Response is returned as raw JSON; typed response structs
 // are deferred.

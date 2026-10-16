@@ -221,6 +221,7 @@ func main() {
 	// GET /users/me reports, so the two cannot drift apart.
 	accessGuard := handler.NewAccessGuard(loadAccessConfig())
 	usersHandler := handler.NewUsersHandler(scimClient, customerEntityClient, dir, sftpgoAttachmentStorageEnabled).WithAccessGuard(accessGuard)
+	responseTemplateHandler := handler.NewResponseTemplateHandler(customerEntityClient)
 	dashboardHandler := handler.NewDashboardHandler(accessGuard)
 	caseHandler = caseHandler.WithAccessGuard(accessGuard)
 
@@ -330,6 +331,14 @@ func main() {
 	route("POST /projects/search", handler.PermView, projectHandler.SearchProjects)
 	route("POST /announcements/audience/search", handler.PermView, announcementHandler.SearchCustomerAnnouncementAudience)
 	route("GET /announcements/audience/excluded-project-keys", handler.PermView, announcementHandler.GetExcludedProjectKeys)
+	// Reading the response-template library is PermView — every engineer
+	// composing a reply picks from it. Maintaining it is
+	// PermManageResponseTemplates: admin and team leads only.
+	route("POST /response-templates/search", handler.PermView, responseTemplateHandler.SearchResponseTemplates)
+	route("GET /response-templates/{id}", handler.PermView, responseTemplateHandler.GetResponseTemplate)
+	route("POST /response-templates", handler.PermManageResponseTemplates, responseTemplateHandler.CreateResponseTemplate)
+	route("PATCH /response-templates/{id}", handler.PermManageResponseTemplates, responseTemplateHandler.UpdateResponseTemplate)
+	route("GET /response-templates/{id}/versions", handler.PermManageResponseTemplates, responseTemplateHandler.ListResponseTemplateVersions)
 	route("POST /announcement-requests", handler.PermWrite, announcementRequestHandler.CreateAnnouncementRequest)
 	route("GET /announcement-requests/{id}", handler.PermView, announcementRequestHandler.GetAnnouncementRequest)
 	route("POST /announcement-requests/search", handler.PermView, announcementRequestHandler.SearchAnnouncementRequests)

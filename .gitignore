@@ -67,3 +67,6 @@ scripts/csm-compose/out.sql
 *ABT-Rotation*
 *sre-rotation*.sql
 *sre-rotation*.csv
+
+# Local-only compose port offset, see the file's own header.
+docker-compose.override.yml

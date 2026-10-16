@@ -60,7 +60,10 @@ func TestAccessGuard_PermissionMatrix(t *testing.T) {
 	// PermAdmin is deliberately excluded from it and tested separately below
 	// -- it is the one permission admin does not share with cs_engineer.
 	allExceptAdmin := []Permission{PermView, PermViewOperations, PermTimeCardsAndUpdates, PermEscalate, PermDownloadAttachment, PermWrite, PermViewSecurityCenter}
-	all := append(append([]Permission{}, allExceptAdmin...), PermAdmin)
+	// PermManageResponseTemplates joins PermAdmin outside allExceptAdmin: it is
+	// the other permission cs_engineer does not hold, since maintaining the
+	// shared template library is a lead's call rather than every engineer's.
+	all := append(append([]Permission{}, allExceptAdmin...), PermAdmin, PermManageResponseTemplates)
 	tests := []struct {
 		name  string
 		roles []string
@@ -72,7 +75,7 @@ func TestAccessGuard_PermissionMatrix(t *testing.T) {
 		{"CS engineer can do every route permission except admin-only ones", []string{"test-cs-engineer"}, allExceptAdmin},
 		{"admin can do every route permission, including admin-only ones", []string{"test-admin"}, all},
 		{"usage metrics viewer can view only", []string{"test-usage-metrics-viewer"}, []Permission{PermView}},
-		{"timecard approver can view and use time cards and updates", []string{"test-timecard-approver"}, []Permission{PermView, PermTimeCardsAndUpdates}},
+		{"timecard approver can view, use time cards and updates, and maintain response templates", []string{"test-timecard-approver"}, []Permission{PermView, PermTimeCardsAndUpdates, PermManageResponseTemplates}},
 		{"dashboard designer can view only", []string{"test-dashboard-designer"}, []Permission{PermView}},
 		{"roles combine", []string{"test-viewer", "test-escalator", "test-attachment-downloader"}, []Permission{PermView, PermEscalate, PermDownloadAttachment}},
 		{"unrelated roles grant nothing", []string{"wso2-everyone", "admin", "agent", "customer"}, nil},

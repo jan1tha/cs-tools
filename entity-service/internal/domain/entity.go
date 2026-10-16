@@ -7609,3 +7609,100 @@ type TeamMember struct {
 type GetTeamMembersResponse struct {
 	Members []TeamMember `json:"members"`
 }
+
+// ResponseTemplateAudience says whether a template's content is written for
+// the customer or for an internal work note. It decides which mode the
+// composer switches to when the template is inserted.
+type ResponseTemplateAudience string
+
+const (
+	ResponseTemplateAudiencePublic   ResponseTemplateAudience = "public"
+	ResponseTemplateAudienceInternal ResponseTemplateAudience = "internal"
+)
+
+// ResponseTemplate is a canned comment body a lead maintains for engineers to
+// insert while composing a case comment.
+//
+// ApplicableCaseTypes/ApplicableStates narrow where a template is offered; an
+// empty slice means "everywhere". Version is the template's current revision,
+// bumped on every content-bearing edit -- engineers always read this record,
+// which is by definition the latest.
+type ResponseTemplate struct {
+	ID                  string                   `json:"id"`
+	Name                string                   `json:"name"`
+	Category            string                   `json:"category"`
+	Description         string                   `json:"description,omitempty"`
+	Content             string                   `json:"content"`
+	Audience            ResponseTemplateAudience `json:"audience"`
+	ApplicableCaseTypes []string                 `json:"applicableCaseTypes"`
+	ApplicableStates    []string                 `json:"applicableStates"`
+	IsActive            bool                     `json:"isActive"`
+	Version             int                      `json:"version"`
+	CreatedOn           time.Time                `json:"createdOn"`
+	CreatedBy           string                   `json:"createdBy"`
+	UpdatedOn           time.Time                `json:"updatedOn"`
+	UpdatedBy           string                   `json:"updatedBy"`
+}
+
+// ResponseTemplateVersion is one published revision of a template, kept
+// append-only so "who changed what, and when" survives later edits.
+type ResponseTemplateVersion struct {
+	Version     int                      `json:"version"`
+	Name        string                   `json:"name"`
+	Category    string                   `json:"category"`
+	Description string                   `json:"description,omitempty"`
+	Content     string                   `json:"content"`
+	Audience    ResponseTemplateAudience `json:"audience"`
+	IsActive    bool                     `json:"isActive"`
+	ChangedBy   string                   `json:"changedBy"`
+	ChangedOn   time.Time                `json:"changedOn"`
+}
+
+// CreateResponseTemplateRequest is the body of POST /response-templates.
+type CreateResponseTemplateRequest struct {
+	Name                string                   `json:"name"`
+	Category            string                   `json:"category"`
+	Description         string                   `json:"description"`
+	Content             string                   `json:"content"`
+	Audience            ResponseTemplateAudience `json:"audience"`
+	ApplicableCaseTypes []string                 `json:"applicableCaseTypes"`
+	ApplicableStates    []string                 `json:"applicableStates"`
+}
+
+// UpdateResponseTemplateRequest is the body of PATCH /response-templates/{id}.
+// Every field is optional: an omitted field keeps its current value. IsActive
+// is how a template is retired and restored -- there is no delete.
+type UpdateResponseTemplateRequest struct {
+	ID                  string                    `json:"-"`
+	Name                *string                   `json:"name"`
+	Category            *string                   `json:"category"`
+	Description         *string                   `json:"description"`
+	Content             *string                   `json:"content"`
+	Audience            *ResponseTemplateAudience `json:"audience"`
+	ApplicableCaseTypes *[]string                 `json:"applicableCaseTypes"`
+	ApplicableStates    *[]string                 `json:"applicableStates"`
+	IsActive            *bool                     `json:"isActive"`
+}
+
+// ListResponseTemplatesRequest filters the template list. IncludeInactive is
+// for the management view only; the engineer-facing list never sets it.
+type ListResponseTemplatesRequest struct {
+	IncludeInactive bool   `json:"includeInactive"`
+	Category        string `json:"category"`
+	CaseType        string `json:"caseType"`
+	State           string `json:"state"`
+}
+
+// ListResponseTemplatesResponse is the response of GET/POST
+// /response-templates/search.
+type ListResponseTemplatesResponse struct {
+	Templates []ResponseTemplate `json:"templates"`
+	Total     int                `json:"total"`
+}
+
+// ResponseTemplateResponse wraps a single template for create/update replies,
+// matching the {message, <entity>} shape the other write endpoints use.
+type ResponseTemplateResponse struct {
+	Message  string           `json:"message"`
+	Template ResponseTemplate `json:"template"`
+}

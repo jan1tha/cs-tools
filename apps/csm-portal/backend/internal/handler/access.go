@@ -71,6 +71,14 @@ const (
 	// PermView, since this is deliberately narrower than the general case/
 	// product-data access PermView otherwise grants.
 	PermViewSecurityCenter
+	// PermManageResponseTemplates is maintaining the shared response-template
+	// library: creating, editing and retiring the canned messages engineers
+	// send to customers. Admin and timecard_approver (the team-lead role)
+	// only — deliberately NOT cs_engineer, unlike PermWrite: a template's
+	// wording goes out to customers under any engineer's name, so changing it
+	// is a lead's call, while using one is every engineer's. Reading the
+	// library stays PermView.
+	PermManageResponseTemplates
 )
 
 // AccessConfig names, per portal role, the role names on the token that grant
@@ -157,6 +165,9 @@ func NewAccessGuard(cfg AccessConfig) *AccessGuard {
 			PermViewAllDashboards:   build(cfg.CsEngineer, cfg.Admin),
 			PermAdmin:               build(cfg.Admin),
 			PermViewSecurityCenter:  build(cfg.CsEngineer, cfg.Admin),
+			// Reading the library is PermView — every engineer composing a
+			// reply needs it; only maintaining it is restricted here.
+			PermManageResponseTemplates: build(cfg.Admin, cfg.TimecardApprover),
 		},
 	}
 }

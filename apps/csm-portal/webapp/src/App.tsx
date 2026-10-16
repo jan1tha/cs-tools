@@ -90,6 +90,7 @@ import DashboardBuilderRouteGuard from "@features/csm-admin/dashboards/pages/Das
 import CsmDashboardBuilderListPage from "@features/csm-admin/dashboards/pages/CsmDashboardBuilderListPage";
 import CsmDashboardBuilderEditorPage from "@features/csm-admin/dashboards/pages/CsmDashboardBuilderEditorPage";
 import CsmDashboardSharedConfigPage from "@features/csm-admin/dashboards/pages/CsmDashboardSharedConfigPage";
+import CsmResponseTemplatesPage from "@features/csm-admin/pages/CsmResponseTemplatesPage";
 import CsmCustomersLayout from "@features/csm-customers/pages/CsmCustomersLayout";
 import CsmAccountsPage from "@features/csm-accounts/pages/CsmAccountsPage";
 import CsmAccountDetailPage from "@features/csm-accounts/pages/CsmAccountDetailPage";
@@ -348,6 +349,14 @@ export default function App(): JSX.Element {
                         />
                       }
                     />
+                    {/* Response templates — deliberately NOT frontend
+                        role-gated, unlike the dashboard builder below: the
+                        backend enforces who may write one
+                        (RESPONSE_TEMPLATE_MANAGER_GROUPS), so this follows
+                        this section's usual "show the action, let the
+                        backend reject it" rule. A non-manager can read the
+                        library here; their save is refused with a 403. */}
+                    <Route path="response-templates" element={<CsmResponseTemplatesPage />} />
                     {/* Dashboard builder — admin-role-gated, unlike every
                         sibling tab above (see DashboardBuilderRouteGuard's
                         own doc comment for why). Persists to localStorage

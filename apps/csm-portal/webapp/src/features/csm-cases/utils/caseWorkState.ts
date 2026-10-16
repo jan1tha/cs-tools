@@ -55,6 +55,24 @@ export function caseAcceptsPublicComments(
  * keeps the messaging and the quick-fix in agreement: a non-assignee never
  * sees a resumable-sounding reason, only the ownership block.
  */
+/**
+ * Whether the case is in one of the two states where the ball is in the
+ * customer's court, and so can be chased through `POST
+ * /cases/{id}/request-update`.
+ *
+ * That endpoint accepts a customer-visible comment in exactly these two
+ * states. The composer deliberately does NOT route to it: a reply typed into
+ * the composer is an ordinary public comment, and those stay restricted to
+ * the case's own assignee while it is actively in progress
+ * (`publicCommentGateReason`). Chasing a stalled case is instead its own
+ * explicit action — see RequestUpdateDialog.
+ */
+export function caseAcceptsCustomerUpdateRequest(
+  state: CaseState | undefined,
+): boolean {
+  return state === "awaiting_info" || state === "solution_proposed";
+}
+
 export function publicCommentGateReason(
   state: CaseState | undefined,
   workState: CaseWorkState | null | undefined,

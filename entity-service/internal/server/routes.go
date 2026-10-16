@@ -211,6 +211,15 @@ func NewRouter(db *pgxpool.Pool, cfg *config.Config) (http.Handler, func()) {
 	// only in Postgres, so its routes are registered only when a pool is
 	// configured.
 	var scheduleHandler *handler.ScheduleHandler
+	// response_template has no ServiceNow equivalent either — canned comment
+	// bodies are this platform's own concept, maintained by leads through
+	// this service. Gated on db the same way as the handlers above.
+	var responseTemplateHandler *handler.ResponseTemplateHandler
+	if db != nil {
+		responseTemplateHandler = handler.NewResponseTemplateHandler(
+			service.NewResponseTemplateService(repository.NewResponseTemplateRepository(db), repository.NewUserRepository(db)),
+		)
+	}
 
 	accountRepo := repository.NewAccountRepository(db)
 	accountHandler := handler.NewAccountHandler(service.NewAccountService(accountRepo))
@@ -1050,6 +1059,14 @@ func NewRouter(db *pgxpool.Pool, cfg *config.Config) (http.Handler, func()) {
 
 	if membershipRegistrationHandler != nil {
 		mux.HandleFunc("POST /users/me/memberships/register", membershipRegistrationHandler.RegisterInvitedMemberships)
+	}
+
+	if responseTemplateHandler != nil {
+		mux.HandleFunc("POST /response-templates/search", responseTemplateHandler.SearchResponseTemplates)
+		mux.HandleFunc("POST /response-templates", responseTemplateHandler.CreateResponseTemplate)
+		mux.HandleFunc("GET /response-templates/{id}", responseTemplateHandler.GetResponseTemplate)
+		mux.HandleFunc("PATCH /response-templates/{id}", responseTemplateHandler.UpdateResponseTemplate)
+		mux.HandleFunc("GET /response-templates/{id}/versions", responseTemplateHandler.ListResponseTemplateVersions)
 	}
 
 	if snUserHandler != nil {
